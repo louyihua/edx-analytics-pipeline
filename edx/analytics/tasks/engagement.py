@@ -60,7 +60,7 @@ class EngagementTableTask(BareHiveTableTask):
         ]
 
 
-class EngagementTask(EventLogSelectionMixin, WarehouseMixin, MapReduceJobTask):
+class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixin, MapReduceJobTask):
 
     # Required parameters
     date = luigi.DateParameter()
@@ -125,10 +125,14 @@ class EngagementTask(EventLogSelectionMixin, WarehouseMixin, MapReduceJobTask):
         yield (key, 1)
 
     def reducer(self, key, values):
-        yield ('\t'.join(key),)
+        yield ('\t'.join(key), sum(values))
 
     def output(self):
         return get_target_from_url(self.output_root)
+
+    def run(self):
+        self.remove_output_on_overwrite()
+        return super(EngagementTask, self).run()
 
 
 class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, HivePartitionTask):
@@ -157,18 +161,13 @@ class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTask
             date=self.date,
             output_root=self.output_root,
             n_reduce_tasks=self.n_reduce_tasks,
-            warehouse_path=self.warehouse_path
+            warehouse_path=self.warehouse_path,
+            overwrite=self.overwrite,
         )
         yield self.hive_table_task
 
-    def complete(self):
-        return all(r.complete() for r in luigi.task.flatten(self.requires()))
 
-    def output(self):
-        return [task.output() for task in self.requires()]
-
-
-class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, luigi.WrapperTask):
+class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, luigi.WrapperTask):
 
     # Optional parameters
     output_root = luigi.Parameter(default=None)
@@ -179,7 +178,8 @@ class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskM
                 date=date,
                 output_root=self.output_root,
                 n_reduce_tasks=self.n_reduce_tasks,
-                warehouse_path=self.warehouse_path
+                warehouse_path=self.warehouse_path,
+                overwrite=self.overwrite,
             )
 
     def output(self):
