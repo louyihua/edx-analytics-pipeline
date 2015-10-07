@@ -158,7 +158,7 @@ class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTask
         yield self.hive_table_task
 
 
-class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, OverwriteOutputMixin, WarehouseMixin, MysqlInsertTask):
+class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, MysqlInsertTask):
 
     # Required Parameters
     date = luigi.DateParameter()
