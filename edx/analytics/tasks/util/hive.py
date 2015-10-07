@@ -133,8 +133,7 @@ class BareHiveTableTask(WarehouseMixin, HiveQueryTask):
 
         query_format = """
             USE {database_name};
-            DROP TABLE IF EXISTS {table};
-            CREATE EXTERNAL TABLE {table} (
+            CREATE EXTERNAL TABLE IF NOT EXISTS {table} (
                 {col_spec}
             )
             {partition_clause}
@@ -200,7 +199,7 @@ class HivePartitionTask(WarehouseMixin, HiveQueryTask):
     def query(self):
         return "USE {database_name}; ALTER TABLE {table} ADD IF NOT EXISTS PARTITION ({partition.query_spec});".format(
             database_name=hive_database_name(),
-            table=self.table.table,
+            table=self.hive_table_task.table,
             partition=self.partition
         )
 
