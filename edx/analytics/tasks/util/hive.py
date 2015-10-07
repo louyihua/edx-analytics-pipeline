@@ -217,7 +217,7 @@ class HivePartitionTask(WarehouseMixin, HiveQueryTask):
 
     def output(self):
         return HivePartitionTarget(
-            self.table, self.partition.as_dict(), database=hive_database_name()
+            self.hive_table_task.table, self.partition.as_dict(), database=hive_database_name()
         )
 
 
