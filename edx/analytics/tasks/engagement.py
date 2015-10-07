@@ -507,16 +507,20 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             if_not_exists='' if self.overwrite else 'IF NOT EXISTS'
         )
 
+    @property
+    def partition_task(self):
+        return WeeklyStudentCourseEngagementPartitionTask(
+            warehouse_path=self.warehouse_path,
+            date=self.date,
+        )
+
     def requires(self):
         kwargs_for_db_import = {
             'overwrite': self.overwrite,
             'import_date': self.date
         }
         yield (
-            WeeklyStudentCourseEngagementPartitionTask(
-                warehouse_path=self.warehouse_path,
-                date=self.date,
-            ),
+            self.partition_task,
             EngagementIntervalTask(
                 interval=self.interval,
                 n_reduce_tasks=self.n_reduce_tasks,
@@ -537,3 +541,6 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             ImportCourseUserGroupUsersTask(**kwargs_for_db_import),
             ImportAuthUserProfileTask(**kwargs_for_db_import),
         )
+
+    def output(self):
+        return get_target_from_url(self.partition_task.partition_location.rstrip('/') + '/')

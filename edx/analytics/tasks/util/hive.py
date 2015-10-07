@@ -211,6 +211,10 @@ class HivePartitionTask(WarehouseMixin, HiveQueryTask):
     def partition(self):
         return HivePartition(self.hive_table_task.partition_by, self.partition_value)
 
+    @property
+    def partition_location(self):
+        return url_path_join(self.hive_table_task.table_location, self.partition.path_spec + '/')
+
     def requires(self):
         yield self.hive_table_task
 
