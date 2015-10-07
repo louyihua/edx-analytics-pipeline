@@ -51,9 +51,9 @@ class EngagementTableTask(BareHiveTableTask):
     @property
     def columns(self):
         return [
-            ('date', 'STRING'),
             ('course_id', 'STRING'),
             ('username', 'STRING'),
+            ('date', 'STRING'),
             ('entity_type', 'STRING'),
             ('entity_id', 'STRING'),
             ('count', 'INT')
@@ -65,9 +65,6 @@ class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixi
     # Required parameters
     date = luigi.DateParameter()
 
-    # Optional parameters
-    output_root = luigi.Parameter(default=None)
-
     # Override superclass to disable these parameters
     interval = None
 
@@ -75,8 +72,6 @@ class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixi
         super(EngagementTask, self).__init__(*args, **kwargs)
 
         self.interval = date_interval.Date.from_date(self.date)
-        if not self.output_root:
-            self.output_root = url_path_join(self.warehouse_path, 'engagement', 'dt=' + self.date.isoformat())
 
     def mapper(self, line):
         value = self.get_event_and_date_string(line)
@@ -120,7 +115,7 @@ class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixi
         if not entity_id or not entity_type:
             return
 
-        key = tuple([k.encode('utf8') for k in (date_string, course_id, username, entity_type, entity_id)])
+        key = tuple([k.encode('utf8') for k in (course_id, username, date_string, entity_type, entity_id)])
 
         yield (key, 1)
 
@@ -140,9 +135,6 @@ class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTask
     # Required Parameters
     date = luigi.DateParameter()
 
-    # Optional parameters
-    output_root = luigi.Parameter(default=None)
-
     # Override superclass to disable these parameters
     interval = None
 
@@ -159,12 +151,49 @@ class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTask
     def requires(self):
         yield EngagementTask(
             date=self.date,
-            output_root=self.output_root,
             n_reduce_tasks=self.n_reduce_tasks,
             warehouse_path=self.warehouse_path,
             overwrite=self.overwrite,
         )
         yield self.hive_table_task
+
+
+class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, OverwriteOutputMixin, WarehouseMixin, MysqlInsertTask):
+
+    # Required Parameters
+    date = luigi.DateParameter()
+
+    # Override superclass to disable these parameters
+    interval = None
+
+    @property
+    def table(self):
+        return "engagement"
+1
+    @property
+    def auto_primary_key(self):
+        return None
+
+    @property
+    def columns(self):
+        return [
+            ('course_id', 'VARCHAR(255) NOT NULL'),
+            ('username', 'VARCHAR(30) NOT NULL'),
+            ('date', 'DATE NOT NULL'),
+            ('entity_type', 'VARCHAR(10) NOT NULL'),
+            ('entity_id', 'VARCHAR(255) NOT NULL'),
+            ('count', 'INTEGER NOT NULL'),
+            ('PRIMARY KEY', '(course_id, username, date, entity_type, entity_id)')
+        ]
+
+    @property
+    def insert_source_task(self):
+        yield EngagementTask(
+            date=self.date,
+            n_reduce_tasks=self.n_reduce_tasks,
+            warehouse_path=self.warehouse_path,
+            overwrite=self.overwrite,
+        )
 
 
 class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, luigi.WrapperTask):
@@ -176,7 +205,12 @@ class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskM
         for date in self.interval:
             yield EngagementPartitionTask(
                 date=date,
-                output_root=self.output_root,
+                n_reduce_tasks=self.n_reduce_tasks,
+                warehouse_path=self.warehouse_path,
+                overwrite=self.overwrite,
+            )
+            yield EngagementMysqlTask(
+                date=date,
                 n_reduce_tasks=self.n_reduce_tasks,
                 warehouse_path=self.warehouse_path,
                 overwrite=self.overwrite,
