@@ -387,6 +387,7 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
 
     date = luigi.DateParameter()
     interval = None
+    partition_value = None
 
     def __init__(self, *args, **kwargs):
         super(WeeklyStudentCourseEngagementTask, self).__init__(*args, **kwargs)
