@@ -12,6 +12,7 @@ import time
 import luigi
 import luigi.task
 from luigi import date_interval
+from luigi.configuration import get_config
 
 try:
     from elasticsearch import Elasticsearch
@@ -201,7 +202,57 @@ class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixi
         )
 
 
+class EngagementVerticaTask(
+        EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin,
+        VerticaCopyTask):
+
+    # Required Parameters
+    date = luigi.DateParameter()
+
+    # Override superclass to disable these parameters
+    interval = None
+
+    @property
+    def insert_source_task(self):
+        return EngagementTask(
+            date=self.date,
+            n_reduce_tasks=self.n_reduce_tasks,
+            warehouse_path=self.warehouse_path,
+            overwrite=self.overwrite,
+        )
+
+    @property
+    def table(self):
+        return 'f_engagement'
+
+    @property
+    def default_columns(self):
+        """List of tuples defining name and definition of automatically-filled columns."""
+        return None
+
+    @property
+    def columns(self):
+        return [
+            ('course_id', 'VARCHAR(255)'),
+            ('username', 'VARCHAR(30)'),
+            ('date', 'DATE'),
+            ('entity_type', 'VARCHAR(10)'),
+            ('entity_id', 'VARCHAR(255)'),
+            ('count', 'INT'),
+        ]
+
+
 class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, luigi.WrapperTask):
+
+    vertica_schema = luigi.Parameter(default=None)
+    vertica_credentials = luigi.Parameter(default=None)
+
+    def __init__(self, *args, **kwargs):
+        if not self.vertica_credentials:
+            self.vertica_credentials = get_config().get('vertica-export', 'credentials', None)
+
+        if not self.vertica_schema:
+            self.vertica_schema = get_config().get('vertica-export', 'schema', None)
 
     def requires(self):
         for date in self.interval:
@@ -217,6 +268,15 @@ class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskM
                 warehouse_path=self.warehouse_path,
                 overwrite=self.overwrite,
             )
+            if self.vertica_credentials and self.vertica_schema:
+                yield EngagementVerticaTask(
+                    date=date,
+                    n_reduce_tasks=self.n_reduce_tasks,
+                    warehouse_path=self.warehouse_path,
+                    overwrite=self.overwrite,
+                    schema=self.vertica_schema,
+                    credentials=self.vertica_credentials,
+                )
 
     def output(self):
         return [task.output() for task in self.requires()]
