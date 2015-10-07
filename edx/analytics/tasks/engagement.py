@@ -411,7 +411,6 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
         start_date = self.date - datetime.timedelta(weeks=1)
         self.interval = date_interval.Custom(start_date, self.date)
 
-    @property
     def query(self):
         # Join with calendar data only if calculating weekly engagement.
         last_complete_date = self.interval.date_b - datetime.timedelta(days=1)  # pylint: disable=no-member
