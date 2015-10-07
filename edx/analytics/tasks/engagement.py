@@ -123,7 +123,7 @@ class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixi
         yield ('\t'.join(key), sum(values))
 
     def output(self):
-        return get_target_from_url(url_path_join(self.warehouse_path, 'engagement', 'dt=' + self.date.isoformat()))
+        return get_target_from_url(url_path_join(self.warehouse_path, 'engagement', 'dt=' + self.date.isoformat()) + '/')
 
     def run(self):
         self.remove_output_on_overwrite()
