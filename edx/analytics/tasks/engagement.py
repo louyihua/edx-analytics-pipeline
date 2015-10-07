@@ -383,7 +383,7 @@ class WeeklyStudentCourseEngagementTableTask(BareHiveTableTask):
         ]
 
 
-class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, OptionalVerticaMixin, HivePartitionTask):
+class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, OverwriteOutputMixin, OptionalVerticaMixin, HivePartitionTask):
 
     date = luigi.DateParameter()
     interval = None
