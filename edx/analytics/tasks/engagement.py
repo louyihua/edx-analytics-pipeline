@@ -248,6 +248,8 @@ class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskM
     vertica_credentials = luigi.Parameter(default=None)
 
     def __init__(self, *args, **kwargs):
+        super(EngagementIntervalTask, self).__init__(*args, **kwargs)
+
         if not self.vertica_credentials:
             self.vertica_credentials = get_config().get('vertica-export', 'credentials', None)
 
