@@ -161,6 +161,12 @@ class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTask
         )
         yield self.hive_table_task
 
+    def complete(self):
+        return all(r.complete() for r in luigi.task.flatten(self.requires()))
+
+    def output(self):
+        return [task.output() for task in self.requires()]
+
 
 class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, luigi.WrapperTask):
 
