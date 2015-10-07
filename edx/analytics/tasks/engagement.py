@@ -188,7 +188,7 @@ class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixi
 
     @property
     def insert_source_task(self):
-        yield EngagementTask(
+        return EngagementTask(
             date=self.date,
             n_reduce_tasks=self.n_reduce_tasks,
             warehouse_path=self.warehouse_path,
@@ -197,9 +197,6 @@ class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixi
 
 
 class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, luigi.WrapperTask):
-
-    # Optional parameters
-    output_root = luigi.Parameter(default=None)
 
     def requires(self):
         for date in self.interval:
