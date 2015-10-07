@@ -135,7 +135,7 @@ class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixi
         return super(EngagementTask, self).run()
 
 
-class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, HivePartitionTask):
+class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, OverwriteOutputMixin, HivePartitionTask):
 
     # Required Parameters
     date = luigi.DateParameter()
