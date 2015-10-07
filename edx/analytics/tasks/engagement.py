@@ -40,7 +40,7 @@ from edx.analytics.tasks.database_imports import (
 from edx.analytics.tasks.enrollments import CourseEnrollmentTableTask
 from edx.analytics.tasks.mapreduce import MapReduceJobTask, MapReduceJobTaskMixin
 from edx.analytics.tasks.pathutil import EventLogSelectionMixin, EventLogSelectionDownstreamMixin
-from edx.analytics.tasks.url import get_target_from_url, url_path_join
+from edx.analytics.tasks.url import get_target_from_url, url_path_join, IgnoredTarget
 from edx.analytics.tasks.util import eventlog
 from edx.analytics.tasks.util.overwrite import OverwriteOutputMixin
 from edx.analytics.tasks.vertica_load import VerticaCopyTask
@@ -542,4 +542,4 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
         )
 
     def output(self):
-        return get_target_from_url(self.partition_task.partition_location.rstrip('/') + '/')
+        return IgnoredTarget()
