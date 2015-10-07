@@ -10,7 +10,9 @@ import sys
 import time
 
 import luigi
+import luigi.task
 from luigi import date_interval
+
 try:
     from elasticsearch import Elasticsearch
     from elasticsearch.client import IndicesClient
@@ -129,7 +131,17 @@ class EngagementTask(EventLogSelectionMixin, WarehouseMixin, MapReduceJobTask):
         return get_target_from_url(self.output_root)
 
 
-class EngagementPartitionTask(HivePartitionTask):
+class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, HivePartitionTask):
+
+    # Required Parameters
+    date = luigi.DateParameter()
+
+    # Optional parameters
+    output_root = luigi.Parameter(default=None)
+
+    @property
+    def partition_value(self):
+        return self.date.isoformat()
 
     @property
     def hive_table_task(self):
@@ -137,21 +149,28 @@ class EngagementPartitionTask(HivePartitionTask):
             warehouse_path=self.warehouse_path
         )
 
+    def requires(self):
+        yield EngagementTask(
+            date=self.date,
+            output_root=self.output_root,
+            n_reduce_tasks=self.n_reduce_tasks,
+            warehouse_path=self.warehouse_path
+        )
+        yield self.hive_table_task
 
-class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, luigi.WrapperTask):
+
+class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, luigi.WrapperTask):
 
     # Optional parameters
     output_root = luigi.Parameter(default=None)
 
     def requires(self):
         for date in self.interval:
-            yield EngagementTask(
+            yield EngagementPartitionTask(
                 date=date,
                 output_root=self.output_root,
-                n_reduce_tasks=self.n_reduce_tasks
-            )
-            yield EngagementPartitionTask(
-                partition_value=date.isoformat()
+                n_reduce_tasks=self.n_reduce_tasks,
+                warehouse_path=self.warehouse_path
             )
 
     def output(self):
