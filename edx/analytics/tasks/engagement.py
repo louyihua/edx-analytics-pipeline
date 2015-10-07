@@ -139,6 +139,9 @@ class EngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTask
     # Optional parameters
     output_root = luigi.Parameter(default=None)
 
+    # Override superclass to disable these parameters
+    interval = None
+
     @property
     def partition_value(self):
         return self.date.isoformat()
