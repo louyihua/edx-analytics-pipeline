@@ -13,7 +13,6 @@ import luigi
 import luigi.task
 from luigi import date_interval
 from luigi.configuration import get_config
-from luigi.hive import HiveQueryTask, HivePartitionTarget
 
 try:
     from elasticsearch import Elasticsearch
@@ -46,7 +45,7 @@ from edx.analytics.tasks.util.overwrite import OverwriteOutputMixin
 from edx.analytics.tasks.vertica_load import VerticaCopyTask
 from edx.analytics.tasks.mysql_load import MysqlInsertTask
 
-from edx.analytics.tasks.util.hive import WarehouseMixin, BareHiveTableTask, HivePartitionTask, HivePartition, HiveTableFromQueryTask
+from edx.analytics.tasks.util.hive import WarehouseMixin, BareHiveTableTask, HivePartitionTask, HivePartition, hive_database_name
 
 log = logging.getLogger(__name__)
 
@@ -384,23 +383,7 @@ class WeeklyStudentCourseEngagementTableTask(BareHiveTableTask):
         ]
 
 
-class WeeklyStudentCourseEngagementPartitionTask(HivePartitionTask):
-
-    # Required Parameters
-    date = luigi.DateParameter()
-
-    @property
-    def partition_value(self):
-        return self.date.isoformat()
-
-    @property
-    def hive_table_task(self):
-        return WeeklyStudentCourseEngagementTableTask(
-            warehouse_path=self.warehouse_path
-        )
-
-
-class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, OptionalVerticaMixin, HiveQueryTask):
+class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, OptionalVerticaMixin, HivePartitionTask):
 
     date = luigi.DateParameter()
     interval = None
@@ -410,6 +393,7 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
 
         start_date = self.date - datetime.timedelta(weeks=1)
         self.interval = date_interval.Custom(start_date, self.date)
+        self.partition_value = self.date.isoformat()
 
     def query(self):
         # Join with calendar data only if calculating weekly engagement.
@@ -417,7 +401,8 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
         iso_weekday = last_complete_date.isoweekday()
 
         return """
-        INSERT OVERWRITE TABLE student_course_engagement_weekly PARTITION {partition.query_spec} {if_not_exists}
+        USE {database_name};
+        INSERT OVERWRITE TABLE {table} PARTITION ({partition.query_spec}) {if_not_exists}
         SELECT
             ce.course_id,
             au.username,
@@ -488,6 +473,9 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
                     END
                 ) as discussion_activity,
             FROM engagement
+            WHERE
+                date >= '{start}'
+                AND date < '{end}'
             GROUP BY
                 course_id,
                 username,
@@ -502,15 +490,16 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             start=self.interval.date_a.isoformat(),  # pylint: disable=no-member
             end=self.interval.date_b.isoformat(),  # pylint: disable=no-member
             iso_weekday=iso_weekday,
-            partition=HivePartition('dt', self.date.isoformat()),
-            if_not_exists='' if self.overwrite else 'IF NOT EXISTS'
+            partition=self.partition,
+            if_not_exists='' if self.overwrite else 'IF NOT EXISTS',
+            database_name=hive_database_name(),
+            table=self.hive_table_task.table,
         )
 
     @property
-    def partition_task(self):
-        return WeeklyStudentCourseEngagementPartitionTask(
+    def hive_table_task(self):
+        return WeeklyStudentCourseEngagementTableTask(
             warehouse_path=self.warehouse_path,
-            date=self.date,
         )
 
     def requires(self):
@@ -519,7 +508,7 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             'import_date': self.date
         }
         yield (
-            self.partition_task,
+            self.hive_table_task,
             EngagementIntervalTask(
                 interval=self.interval,
                 n_reduce_tasks=self.n_reduce_tasks,
@@ -540,6 +529,3 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             ImportCourseUserGroupUsersTask(**kwargs_for_db_import),
             ImportAuthUserProfileTask(**kwargs_for_db_import),
         )
-
-    def output(self):
-        return IgnoredTarget()
