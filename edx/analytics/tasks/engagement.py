@@ -182,7 +182,12 @@ class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixi
             ('date', 'DATE NOT NULL'),
             ('entity_type', 'VARCHAR(10) NOT NULL'),
             ('entity_id', 'VARCHAR(255) NOT NULL'),
-            ('count', 'INTEGER NOT NULL'),
+            ('count', 'INTEGER NOT NULL')
+        ]
+
+    @property
+    def default_columns(self):
+        return [
             ('PRIMARY KEY', '(course_id, username, date, entity_type, entity_id)')
         ]
 
