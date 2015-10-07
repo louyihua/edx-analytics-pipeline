@@ -169,7 +169,7 @@ class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixi
     @property
     def table(self):
         return "engagement"
-1
+
     @property
     def auto_primary_key(self):
         return None
