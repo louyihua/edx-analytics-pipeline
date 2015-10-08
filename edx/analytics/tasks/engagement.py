@@ -9,6 +9,8 @@ import re
 import sys
 import time
 
+log = logging.getLogger(__name__)
+
 import luigi
 import luigi.task
 from luigi import date_interval
@@ -46,8 +48,6 @@ from edx.analytics.tasks.vertica_load import VerticaCopyTask
 from edx.analytics.tasks.mysql_load import MysqlInsertTask
 
 from edx.analytics.tasks.util.hive import WarehouseMixin, BareHiveTableTask, HivePartitionTask, HivePartition, hive_database_name
-
-log = logging.getLogger(__name__)
 
 
 class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixin, MapReduceJobTask):
