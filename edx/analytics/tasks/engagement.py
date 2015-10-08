@@ -499,6 +499,11 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
         log.info(query)
         return query
 
+    def hiveconfs(self):
+        jcs = super(JoinedStudentEngagementTableTask, self).hiveconfs()
+        jcs['hive.auto.convert.join'] = 'false'
+        return jcs
+
     @property
     def hive_table_task(self):
         return WeeklyStudentCourseEngagementTableTask(
