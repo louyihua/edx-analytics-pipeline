@@ -89,36 +89,36 @@ class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixi
 
         entity_id = None
         entity_type = None
-        actions = []
+        events = []
         if event_type == 'problem_check':
             if event_source != 'server':
                 return
 
             entity_type = 'problem'
             if event_data.get('success', 'incorrect').lower() == 'correct':
-                actions.append('completed')
+                events.append('completed')
 
-            actions.append('attempted')
+            events.append('attempted')
             entity_id = event_data.get('problem_id')
         elif event_type == 'play_video':
             entity_type = 'video'
-            actions.append('played')
+            events.append('played')
             entity_id = event_data.get('id')
         elif event_type.startswith('edx.forum.'):
             entity_type = 'forum'
             if event_type == 'edx.forum.comment.created':
-                actions.append('commented')
+                events.append('commented')
             elif event_type == 'edx.forum.response.created':
-                actions.append('responded')
+                events.append('responded')
             elif event_type == 'edx.forum.thread.created':
-                actions.append('created')
+                events.append('created')
             entity_id = event_data.get('commentable_id')
 
         if not entity_id or not entity_type:
             return
 
-        for action in actions:
-            key = tuple([k.encode('utf8') for k in (course_id, username, date_string, entity_type, entity_id, action)])
+        for event in events:
+            key = tuple([k.encode('utf8') for k in (course_id, username, date_string, entity_type, entity_id, event)])
             yield (key, 1)
 
     def reducer(self, key, values):
@@ -150,7 +150,7 @@ class EngagementTableTask(BareHiveTableTask):
             ('date', 'STRING'),
             ('entity_type', 'STRING'),
             ('entity_id', 'STRING'),
-            ('action', 'STRING'),
+            ('event', 'STRING'),
             ('count', 'INT')
         ]
 
@@ -230,7 +230,7 @@ class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixi
             ('date', 'DATE NOT NULL'),
             ('entity_type', 'VARCHAR(10) NOT NULL'),
             ('entity_id', 'VARCHAR(255) NOT NULL'),
-            ('action', 'VARCHAR(30) NOT NULL'),
+            ('event', 'VARCHAR(30) NOT NULL'),
             ('count', 'INTEGER NOT NULL')
         ]
 
@@ -250,12 +250,12 @@ class EngagementMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixi
         #   date(3 bytes per DATE)
         #   entity_type(10 characters * 3 bytes per utf8 char)
         #   entity_id(255 characters * 3 bytes per utf8 char)
-        #   action(30 characters * 3 bytes per utf8 char)
+        #   event(30 characters * 3 bytes per utf8 char)
         #   count(4 bytes per INTEGER)
 
         # Total = 1747
         return [
-            ('PRIMARY KEY', '(course_id, username, date, entity_type, entity_id, action)')
+            ('PRIMARY KEY', '(course_id, username, date, entity_type, entity_id, event)')
         ]
 
     @property
@@ -303,7 +303,7 @@ class EngagementVerticaTask(
             ('date', 'DATE'),
             ('entity_type', 'VARCHAR(10)'),
             ('entity_id', 'VARCHAR(255)'),
-            ('action', 'VARCHAR(30)'),
+            ('event', 'VARCHAR(30)'),
             ('count', 'INT'),
         ]
 
@@ -440,28 +440,28 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
                 DATE_ADD('{start}', ((DATEDIFF('{end}', date) / 7) + 1) * 7) as end_date,
                 SUM(
                     CASE
-                        WHEN entity_type = "problem" AND action = "attempted"
+                        WHEN entity_type = "problem" AND event = "attempted"
                         THEN count
                         ELSE 0
                     END
                 ) as problem_attempts,
                 SUM(
                     CASE
-                        WHEN entity_type = "problem" AND action = "attempted"
+                        WHEN entity_type = "problem" AND event = "attempted"
                         THEN 1
                         ELSE 0
                     END
                 ) as problems_attempted,
                 SUM(
                     CASE
-                        WHEN entity_type = "problem" AND action = "completed"
+                        WHEN entity_type = "problem" AND event = "completed"
                         THEN 1
                         ELSE 0
                     END
                 ) as problems_completed,
                 SUM(
                     CASE
-                        WHEN entity_type = "video" AND action = "played"
+                        WHEN entity_type = "video" AND event = "played"
                         THEN 1
                         ELSE 0
                     END
@@ -472,7 +472,7 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
                         THEN count
                         ELSE 0
                     END
-                ) as discussion_activity,
+                ) as discussion_activity
             FROM engagement
             WHERE
                 date >= '{start}'
@@ -480,7 +480,7 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             GROUP BY
                 course_id,
                 username,
-                DATE_ADD('{start}', ((DATEDIFF('{end}', date) / 7) + 1) * 7)
+                DATE_ADD('{start}', CAST(((DATEDIFF('{end}', date) / 7) + 1) * 7 AS INT))
         ) eng
             ON (ce.course_id = eng.course_id AND au.username = eng.username AND ce.date = eng.end_date)
         WHERE
