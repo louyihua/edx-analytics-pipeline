@@ -401,7 +401,7 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
         last_complete_date = self.interval.date_b - datetime.timedelta(days=1)  # pylint: disable=no-member
         iso_weekday = last_complete_date.isoweekday()
 
-        return """
+        query = """
         USE {database_name};
         INSERT OVERWRITE TABLE {table} PARTITION ({partition.query_spec}) {if_not_exists}
         SELECT
@@ -496,6 +496,8 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             database_name=hive_database_name(),
             table=self.hive_table_task.table,
         )
+        log.info(query)
+        return query
 
     @property
     def hive_table_task(self):
