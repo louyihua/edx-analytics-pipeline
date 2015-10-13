@@ -255,14 +255,6 @@ class HivePartitionTargetMixin(object):
                     # oh the table just doesn't exist
                     return False
 
-    @property
-    def path(self):
-        """Returns the path for this HiveTablePartitionTarget's data"""
-        location = self.client.table_location(self.table, self.database, self.partition)
-        if not location:
-            raise Exception("Couldn't find location for table: {0}".format(str(self)))
-        return location
-
 
 class OverwriteAwareHiveQueryRunner(HiveQueryRunner):
     """A custom hive query runner that logs the query being executed and is aware of the "overwrite" option."""
