@@ -226,17 +226,19 @@ class HivePartitionTask(WarehouseMixin, HiveQueryTask):
         class HivePartitionTarget(HivePartitionTargetMixin, target_class):
             pass
 
-        return HivePartitionTarget(self.hive_table_task.table, self.partition.as_dict())
+        return HivePartitionTarget(self.hive_table_task.table, self.partition.as_dict(), self.partition_location)
 
 
 class HivePartitionTargetMixin(object):
 
-    def __init__(self, table, partition, fail_missing_table=True, client=default_client):
+    def __init__(self, table, partition, partition_location):
+        super(HivePartitionTargetMixin, self).__init__(partition_location)
+
         self.database = hive_database_name()
         self.table = table
         self.partition = partition
-        self.client = client
-        self.fail_missing_table = fail_missing_table
+        self.client = default_client
+        self.fail_missing_table = True
 
     def exists(self):
         try:
