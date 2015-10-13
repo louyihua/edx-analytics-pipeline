@@ -437,7 +437,6 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             SELECT
                 course_id,
                 username,
-                DATE_ADD('{start}', ((DATEDIFF('{end}', date) / 7) + 1) * 7) as end_date,
                 SUM(
                     CASE
                         WHEN entity_type = "problem" AND event = "attempted"
@@ -479,10 +478,9 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
                 AND date < '{end}'
             GROUP BY
                 course_id,
-                username,
-                DATE_ADD('{start}', CAST(((DATEDIFF('{end}', date) / 7) + 1) * 7 AS INT))
+                username
         ) eng
-            ON (ce.course_id = eng.course_id AND au.username = eng.username AND ce.date = eng.end_date)
+            ON (ce.course_id = eng.course_id AND au.username = eng.username)
         WHERE
             ce.date >= '{start}'
             AND ce.date < '{end}'
