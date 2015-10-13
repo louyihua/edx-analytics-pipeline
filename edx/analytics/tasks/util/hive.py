@@ -5,10 +5,10 @@ import textwrap
 
 import luigi
 from luigi.configuration import get_config
-from luigi.hive import HiveQueryTask, HivePartitionTarget, HiveQueryRunner, HiveTableTarget
+from luigi.hive import HiveQueryTask, HivePartitionTarget, HiveQueryRunner, HiveTableTarget, default_client, HiveCommandError
 from luigi.parameter import Parameter
 
-from edx.analytics.tasks.url import url_path_join, get_target_from_url
+from edx.analytics.tasks.url import url_path_join, get_target_from_url, get_target_class_from_url
 from edx.analytics.tasks.mysql_load import MysqlInsertTask
 from edx.analytics.tasks.util.overwrite import OverwriteOutputMixin
 
@@ -219,9 +219,47 @@ class HivePartitionTask(WarehouseMixin, HiveQueryTask):
         yield self.hive_table_task
 
     def output(self):
-        return HivePartitionTarget(
-            self.hive_table_task.table, self.partition.as_dict(), database=hive_database_name()
-        )
+        # Figure out the type of target that should be used to write/read the file.
+        target_class, init_args, init_kwargs = get_target_class_from_url(self.partition_location)
+
+        # Ensure our constructed target inherits from the appropriate type of file target.
+        class HivePartitionTarget(HivePartitionTargetMixin, target_class):
+            pass
+
+        return HivePartitionTarget(self.hive_table_task.table, self.partition.as_dict())
+
+
+class HivePartitionTargetMixin(object):
+
+    def __init__(self, table, partition, fail_missing_table=True, client=default_client):
+        self.database = hive_database_name()
+        self.table = table
+        self.partition = partition
+        self.client = client
+        self.fail_missing_table = fail_missing_table
+
+    def exists(self):
+        try:
+            log.debug("Checking Hive table '{d}.{t}' for partition {p}".format(d=self.database, t=self.table, p=str(self.partition)))
+            return self.client.table_exists(self.table, self.database, self.partition)
+        except HiveCommandError, e:
+            if self.fail_missing_table:
+                raise
+            else:
+                if self.client.table_exists(self.table, self.database):
+                    # a real error occurred
+                    raise
+                else:
+                    # oh the table just doesn't exist
+                    return False
+
+    @property
+    def path(self):
+        """Returns the path for this HiveTablePartitionTarget's data"""
+        location = self.client.table_location(self.table, self.database, self.partition)
+        if not location:
+            raise Exception("Couldn't find location for table: {0}".format(str(self)))
+        return location
 
 
 class OverwriteAwareHiveQueryRunner(HiveQueryRunner):
