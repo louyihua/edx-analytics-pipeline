@@ -1,4 +1,5 @@
 import csv
+from collections import namedtuple
 import datetime
 import hashlib
 import json
@@ -47,7 +48,9 @@ from edx.analytics.tasks.util.overwrite import OverwriteOutputMixin
 from edx.analytics.tasks.vertica_load import VerticaCopyTask
 from edx.analytics.tasks.mysql_load import MysqlInsertTask
 
-from edx.analytics.tasks.util.hive import WarehouseMixin, BareHiveTableTask, HivePartitionTask, HivePartition, hive_database_name
+from edx.analytics.tasks.util.hive import (
+    WarehouseMixin, BareHiveTableTask, HivePartitionTask, hive_database_name, tsv_to_named_tuple, named_tuple_to_tsv
+)
 
 
 class EngagementTask(EventLogSelectionMixin, OverwriteOutputMixin, WarehouseMixin, MapReduceJobTask):
@@ -535,3 +538,184 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             ImportCourseUserGroupUsersTask(**kwargs_for_db_import),
             ImportAuthUserProfileTask(**kwargs_for_db_import),
         )
+
+
+WeeklyCourseEngagementRecord = namedtuple(
+    'WeeklyCourseEngagementRecord',
+    [
+        'course_id',
+        'username',
+        'date',
+        'email',
+        'name',
+        'enrollment_mode',
+        'cohort',
+        'problem_attempts',
+        'problems_attempted',
+        'problems_completed',
+        'videos_played',
+        'discussion_activity'
+    ]
+)
+
+
+class StudentEngagementIndexTask(
+        EventLogSelectionDownstreamMixin,
+        OverwriteOutputMixin,
+        OptionalVerticaMixin,
+        MapReduceJobTask):
+
+    elasticsearch_host = luigi.Parameter(
+        is_list=True,
+        config_path={'section': 'elasticsearch', 'name': 'host'}
+    )
+    elasticsearch_index = luigi.Parameter(
+        config_path={'section': 'student-engagement', 'name': 'index'}
+    )
+    scale_factor = luigi.IntParameter(default=1)
+    throttle = luigi.FloatParameter(default=0.1)
+    batch_size = luigi.IntParameter(default=1000)
+
+    def requires(self):
+        return WeeklyStudentCourseEngagementTask(
+            mapreduce_engine=self.mapreduce_engine,
+            n_reduce_tasks=self.n_reduce_tasks,
+            overwrite=self.overwrite,
+        )
+
+    def init_local(self):
+        es = self.create_elasticsearch_client()
+        if not es.indices.exists(index=self.elasticsearch_index):
+            es.indices.create(index=self.elasticsearch_index)
+            es.indices.put_settings(index=self.elasticsearch_index, body={
+                'refresh_interval': -1
+            })
+
+        doc_type = 'roster_entry'
+        es.indices.put_mapping(index=self.elasticsearch_index, doc_type=doc_type, body={
+            doc_type: {
+                'properties': {
+                    'course_id': {'type': 'string', 'index': 'not_analyzed'},
+                    'username': {'type': 'string', 'index': 'not_analyzed'},
+                    'email': {'type': 'string', 'index': 'not_analyzed'},
+                    'name': {'type': 'string'},
+                    'enrollment_mode': {'type': 'string', 'index': 'not_analyzed'},
+                    'cohort': {'type': 'string', 'index': 'not_analyzed'},
+                    'problems_attempted': {'type': 'integer'},
+                    'discussion_activity': {'type': 'integer'},
+                    'problems_completed': {'type': 'integer'},
+                    'attempts_per_problem_completed': {'type': 'float'},
+                    'videos_watched': {'type': 'integer'},
+                    'segments': {'type': 'string'},
+                    'name_suggest': {
+                        'type': 'completion',
+                        'index_analyzer': 'simple',
+                        'search_analyzer': 'simple',
+                        'payloads': True,
+                        "context": {
+                            "course_id": {
+                                "type": "category",
+                                "default": "unknown",
+                                "path": "course_id"
+                            }
+                        }
+                    }
+                }
+            }
+        })
+
+    def create_elasticsearch_client(self):
+        return Elasticsearch(
+            hosts=self.elasticsearch_host,
+            timeout=60,
+            retry_on_status=(408,),
+            retry_on_timeout=True
+        )
+
+    def mapper(self, line):
+        record = tsv_to_named_tuple(WeeklyCourseEngagementRecord, line)
+        yield (record.course_id.encode('utf8'), line)
+
+    def reducer(self, _key, lines):
+        es = self.create_elasticsearch_client()
+
+        self.batch_index = 0
+
+        def record_generator():
+            for line in lines:
+                record = tsv_to_named_tuple(WeeklyCourseEngagementRecord, line)
+
+                problems_attempted = int(record.problems_attempted)
+                problem_attempts = int(record.problem_attempts)
+                discussion_activity = int(record.discussion_activity)
+                problems_completed = int(record.problems_completed)
+
+                document = {
+                    '_index': self.elasticsearch_index,
+                    '_type': 'roster_entry',
+                    '_id': '|'.join([record.course_id, record.username]),
+                    '_source': {
+                        'course_id': record.course_id,
+                        'username': record.username,
+                        'email': record.email,
+                        'name': record.name,
+                        'enrollment_mode': record.enrollment_mode,
+                        'problems_attempted': problems_attempted,
+                        'discussion_activity': discussion_activity,
+                        'problems_completed': problems_completed,
+                        'videos_watched': int(record.videos_played),
+                        'segments': [],
+                        'name_suggest': {
+                            'input': [record.name, record.username, record.email],
+                            'output': record.name,
+                            'payload': {'username': record.username},
+                            'context': {
+                                'course_id': record.course_id
+                            }
+                        }
+                    }
+                }
+
+                if cohort is not None:
+                    document['_source']['cohort'] = record.cohort
+
+                if problems_completed > 0:
+                    document['_source']['attempts_per_problem_completed'] = float(problem_attempts) / float(problems_completed)
+
+                original_id = document['_id']
+                for i in range(self.scale_factor):
+                    if i > 0:
+                        document['_id'] = original_id + '|' + str(i)
+                    yield document
+
+                    self.batch_index += 1
+                    if self.batch_size is not None and self.batch_index >= self.batch_size:
+                        self.incr_counter('Elasticsearch', 'Records Indexed', self.batch_index)
+                        self.batch_index = 0
+                        if self.throttle:
+                            time.sleep(self.throttle)
+
+        num_indexed, errors = helpers.bulk(
+            es, record_generator(), chunk_size=self.batch_size, raise_on_error=False, timeout=600)
+        self.incr_counter('Elasticsearch', 'Records Indexed', self.batch_index)
+        num_errors = len(errors)
+        self.incr_counter('Elasticsearch', 'Indexing Errors', num_errors)
+        sys.stderr.write('Number of errors: {0}\n'.format(num_errors))
+        for error in errors:
+            sys.stderr.write(str(error))
+            sys.stderr.write('\n')
+
+        yield ('', '')
+
+    def extra_modules(self):
+        import urllib3
+        import elasticsearch
+        return [urllib3, elasticsearch]
+
+    def jobconfs(self):
+        jcs = super(StudentEngagementIndexTask, self).jobconfs()
+        jcs.append('mapred.reduce.tasks.speculative.execution=false')
+        return jcs
+
+    def output(self):
+        return IgnoredTarget()
