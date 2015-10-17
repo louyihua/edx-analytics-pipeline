@@ -565,6 +565,9 @@ class WeeklyStudentCourseEngagementIndexTask(
         OptionalVerticaMixin,
         MapReduceJobTask):
 
+    date = luigi.DateParameter()
+    interval = None
+
     elasticsearch_host = luigi.Parameter(
         is_list=True,
         config_path={'section': 'elasticsearch', 'name': 'host'}
@@ -581,6 +584,7 @@ class WeeklyStudentCourseEngagementIndexTask(
             mapreduce_engine=self.mapreduce_engine,
             n_reduce_tasks=self.n_reduce_tasks,
             overwrite=self.overwrite,
+            date=self.date,
         )
 
     def init_local(self):
