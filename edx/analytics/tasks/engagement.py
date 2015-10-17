@@ -415,11 +415,11 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             regexp_replace(regexp_replace(aup.name, '\\\\t|\\\\n|\\\\r', ' '), '\\\\\\\\', ''),
             ce.mode,
             cohort.name,
-            eng.problem_attempts,
-            eng.problems_attempted,
-            eng.problems_completed,
-            eng.videos_played,
-            eng.discussion_activity
+            COALESCE(eng.problem_attempts, 0),
+            COALESCE(eng.problems_attempted, 0),
+            COALESCE(eng.problems_completed, 0),
+            COALESCE(eng.videos_played, 0),
+            COALESCE(eng.discussion_activity, 0)
         FROM course_enrollment ce
         INNER JOIN calendar cal ON (ce.date = cal.date)
         INNER JOIN auth_user au
@@ -650,8 +650,6 @@ class WeeklyStudentCourseEngagementIndexTask(
         def record_generator():
             for line in lines:
                 record = tsv_to_named_tuple(WeeklyCourseEngagementRecord, line)
-
-                log.error(str(record))
 
                 problems_attempted = int(record.problems_attempted)
                 problem_attempts = int(record.problem_attempts)
