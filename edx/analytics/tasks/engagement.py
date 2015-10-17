@@ -597,15 +597,15 @@ class StudentEngagementIndexTask(
                 'properties': {
                     'course_id': {'type': 'string', 'index': 'not_analyzed'},
                     'username': {'type': 'string', 'index': 'not_analyzed'},
-                    'email': {'type': 'string', 'index': 'not_analyzed'},
+                    'email': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
                     'name': {'type': 'string'},
-                    'enrollment_mode': {'type': 'string', 'index': 'not_analyzed'},
-                    'cohort': {'type': 'string', 'index': 'not_analyzed'},
-                    'problems_attempted': {'type': 'integer'},
-                    'discussion_activity': {'type': 'integer'},
-                    'problems_completed': {'type': 'integer'},
-                    'attempts_per_problem_completed': {'type': 'float'},
-                    'videos_watched': {'type': 'integer'},
+                    'enrollment_mode': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
+                    'cohort': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
+                    'problems_attempted': {'type': 'integer', 'doc_values': True},
+                    'discussion_activity': {'type': 'integer', 'doc_values': True},
+                    'problems_completed': {'type': 'integer', 'doc_values': True},
+                    'attempts_per_problem_completed': {'type': 'float', 'doc_values': True},
+                    'videos_watched': {'type': 'integer', 'doc_values': True},
                     'segments': {'type': 'string'},
                     'name_suggest': {
                         'type': 'completion',
@@ -628,7 +628,7 @@ class StudentEngagementIndexTask(
         return Elasticsearch(
             hosts=self.elasticsearch_host,
             timeout=60,
-            retry_on_status=(408,),
+            retry_on_status=(408, 504),
             retry_on_timeout=True
         )
 
@@ -651,7 +651,6 @@ class StudentEngagementIndexTask(
                 problems_completed = int(record.problems_completed)
 
                 document = {
-                    '_index': self.elasticsearch_index,
                     '_type': 'roster_entry',
                     '_id': '|'.join([record.course_id, record.username]),
                     '_source': {
@@ -696,7 +695,12 @@ class StudentEngagementIndexTask(
                             time.sleep(self.throttle)
 
         num_indexed, errors = helpers.bulk(
-            es, record_generator(), chunk_size=self.batch_size, raise_on_error=False, timeout=600)
+            es,
+            record_generator(),
+            index=self.elasticsearch_index,
+            chunk_size=self.batch_size,
+            raise_on_error=False
+        )
         self.incr_counter('Elasticsearch', 'Records Indexed', self.batch_index)
         num_errors = len(errors)
         self.incr_counter('Elasticsearch', 'Indexing Errors', num_errors)
