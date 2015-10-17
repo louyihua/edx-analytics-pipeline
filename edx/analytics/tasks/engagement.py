@@ -559,7 +559,7 @@ WeeklyCourseEngagementRecord = namedtuple(
 )
 
 
-class StudentEngagementIndexTask(
+class WeeklyStudentCourseEngagementIndexTask(
         EventLogSelectionDownstreamMixin,
         OverwriteOutputMixin,
         OptionalVerticaMixin,
@@ -584,7 +584,7 @@ class StudentEngagementIndexTask(
         )
 
     def init_local(self):
-        super(StudentEngagementIndexTask, self).init_local()
+        super(WeeklyStudentCourseEngagementIndexTask, self).init_local()
 
         es = self.create_elasticsearch_client()
         if not es.indices.exists(index=self.elasticsearch_index):
@@ -719,7 +719,7 @@ class StudentEngagementIndexTask(
         return [urllib3, elasticsearch]
 
     def jobconfs(self):
-        jcs = super(StudentEngagementIndexTask, self).jobconfs()
+        jcs = super(WeeklyStudentCourseEngagementIndexTask, self).jobconfs()
         jcs.append('mapred.reduce.tasks.speculative.execution=false')
         return jcs
 
