@@ -584,6 +584,8 @@ class StudentEngagementIndexTask(
         )
 
     def init_local(self):
+        super(StudentEngagementIndexTask, self).init_local()
+
         es = self.create_elasticsearch_client()
         if not es.indices.exists(index=self.elasticsearch_index):
             es.indices.create(index=self.elasticsearch_index)
