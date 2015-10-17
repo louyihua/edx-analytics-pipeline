@@ -651,6 +651,8 @@ class WeeklyStudentCourseEngagementIndexTask(
             for line in lines:
                 record = tsv_to_named_tuple(WeeklyCourseEngagementRecord, line)
 
+                log.error(str(record))
+
                 problems_attempted = int(record.problems_attempted)
                 problem_attempts = int(record.problem_attempts)
                 discussion_activity = int(record.discussion_activity)
