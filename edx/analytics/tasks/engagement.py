@@ -681,7 +681,7 @@ class WeeklyStudentCourseEngagementIndexTask(
                     }
                 }
 
-                if cohort is not None:
+                if record.cohort is not None:
                     document['_source']['cohort'] = record.cohort
 
                 if problems_completed > 0:
