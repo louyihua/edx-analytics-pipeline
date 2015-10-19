@@ -35,9 +35,9 @@ class BotoHttpConnection(Connection):
             self.log_request_fail(method, url, body, duration, response.status)
             self._raise_error(response.status_code, raw_data)
 
-        self.log_request_success(method, url, response.request.path_url, body, response.status, raw_data, duration)
+        self.log_request_success(method, url, url, body, response.status, raw_data, duration)
 
-        return response.status, response.headers, raw_data
+        return response.status, response.getheaders(), raw_data
 
 
 class ESConnection(AWSAuthConnection):

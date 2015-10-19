@@ -45,6 +45,7 @@ from edx.analytics.tasks.pathutil import EventLogSelectionMixin, EventLogSelecti
 from edx.analytics.tasks.url import get_target_from_url, url_path_join, IgnoredTarget
 from edx.analytics.tasks.util import eventlog
 from edx.analytics.tasks.util.overwrite import OverwriteOutputMixin
+from edx.analytics.tasks.util.elastic_search import BotoHttpConnection
 from edx.analytics.tasks.vertica_load import VerticaCopyTask
 from edx.analytics.tasks.mysql_load import MysqlInsertTask
 
@@ -630,7 +631,8 @@ class WeeklyStudentCourseEngagementIndexTask(
             hosts=self.elasticsearch_host,
             timeout=60,
             retry_on_status=(408, 504),
-            retry_on_timeout=True
+            retry_on_timeout=True,
+            connection_class=BotoHttpConnection
         )
 
     def mapper(self, line):
