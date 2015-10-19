@@ -2,22 +2,19 @@ import time
 from urllib import urlencode
 try:
     from boto.connection import AWSAuthConnection
-    BOTO_AVAILABLE = True
 except ImportError:
-    BOTO_AVAILABLE = False
+    AWSAuthConnection = object
 
 try:
     from elasticsearch import Connection
     from elasticsearch import ImproperlyConfigured
 except ImportError:
-    pass
+    Connection = object
 
 
 class BotoHttpConnection(Connection):
 
     def __init__(self, host='localhost', **kwargs):
-        if not BOTO_AVAILABLE:
-            raise ImproperlyConfigured("Please install boto to use BotoHttpConnection.")
         super(BotoHttpConnection, self).__init__(host=host, port=443, **kwargs)
         other_args = {}
         if 'timeout' in kwargs:
