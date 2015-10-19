@@ -6,8 +6,11 @@ try:
 except ImportError:
     BOTO_AVAILABLE = False
 
-from elasticsearch import Connection
-from elasticsearch import ImproperlyConfigured
+try:
+    from elasticsearch import Connection
+    from elasticsearch import ImproperlyConfigured
+except ImportError:
+    pass
 
 
 class BotoHttpConnection(Connection):
