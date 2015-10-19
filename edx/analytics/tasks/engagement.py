@@ -574,11 +574,19 @@ class WeeklyStudentCourseEngagementIndexTask(
     scale_factor = luigi.IntParameter(default=1)
     throttle = luigi.FloatParameter(default=0.1)
     batch_size = luigi.IntParameter(default=1000)
+    indexing_tasks = luigi.IntParameter(default=None)
+
+    def __init__(self, *args, **kwargs):
+        super(WeeklyStudentCourseEngagementIndexTask, self).__init__(*args, **kwargs)
+
+        self.other_reduce_tasks = self.n_reduce_tasks
+        if self.indexing_tasks is not None:
+            self.n_reduce_tasks = self.indexing_tasks
 
     def requires(self):
         return WeeklyStudentCourseEngagementTask(
             mapreduce_engine=self.mapreduce_engine,
-            n_reduce_tasks=self.n_reduce_tasks,
+            n_reduce_tasks=self.other_reduce_tasks,
             overwrite=self.overwrite,
             date=self.date,
         )
