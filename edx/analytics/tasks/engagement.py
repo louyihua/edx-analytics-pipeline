@@ -571,9 +571,12 @@ class WeeklyStudentCourseEngagementIndexTask(
     elasticsearch_index = luigi.Parameter(
         config_path={'section': 'student-engagement', 'name': 'index'}
     )
+    elasticsearch_number_of_shards = luigi.Parameter(
+        config_path={'section': 'student-engagement', 'name': 'number_of_shards'}
+    )
     scale_factor = luigi.IntParameter(default=1)
-    throttle = luigi.FloatParameter(default=0.1)
-    batch_size = luigi.IntParameter(default=1000)
+    throttle = luigi.FloatParameter(default=0.25)
+    batch_size = luigi.IntParameter(default=500)
     indexing_tasks = luigi.IntParameter(default=None)
 
     def __init__(self, *args, **kwargs):
@@ -598,6 +601,7 @@ class WeeklyStudentCourseEngagementIndexTask(
         if not es.indices.exists(index=self.elasticsearch_index):
             es.indices.create(index=self.elasticsearch_index)
             es.indices.put_settings(index=self.elasticsearch_index, body={
+                'number_of_shards': self.elasticsearch_number_of_shards,
                 'refresh_interval': -1
             })
 
