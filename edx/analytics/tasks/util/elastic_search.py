@@ -32,7 +32,7 @@ class BotoHttpConnection(Connection):
         # raise errors based on http status codes, let the client handle those if needed
         if not (200 <= response.status < 300) and response.status not in ignore:
             self.log_request_fail(method, url, body, duration, response.status)
-            self._raise_error(response.status_code, raw_data)
+            self._raise_error(response.status, raw_data)
 
         self.log_request_success(method, url, url, body, response.status, raw_data, duration)
 
