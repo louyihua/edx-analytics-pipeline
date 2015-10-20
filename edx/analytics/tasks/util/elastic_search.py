@@ -1,3 +1,4 @@
+import json
 import time
 from urllib import urlencode
 try:
@@ -24,7 +25,7 @@ class BotoHttpConnection(Connection):
             url = '%s?%s' % (url, urlencode(params or {}))
 
         start = time.time()
-        response = self.connection.make_request(method, url, data=body)
+        response = self.connection.make_request(method, url, data=json.dumps(body))
         duration = time.time() - start
         raw_data = response.read()
 
