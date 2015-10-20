@@ -15,6 +15,7 @@ except ImportError:
 class BotoHttpConnection(Connection):
 
     def __init__(self, host='localhost', **kwargs):
+        kwargs.pop('port', None)
         super(BotoHttpConnection, self).__init__(host=host, port=443, **kwargs)
         other_args = {}
         if 'timeout' in kwargs:
