@@ -17,10 +17,7 @@ class BotoHttpConnection(Connection):
     def __init__(self, host='localhost', **kwargs):
         kwargs.pop('port', None)
         super(BotoHttpConnection, self).__init__(host=host, port=443, **kwargs)
-        other_args = {}
-        if 'timeout' in kwargs:
-            other_args['timeout'] = kwargs['timeout']
-        self.connection = ESConnection(host=host, port=443, **other_args)
+        self.connection = ESConnection(host=host, port=443)
 
     def perform_request(self, method, url, params=None, body=None, timeout=None, ignore=()):
         if params:
