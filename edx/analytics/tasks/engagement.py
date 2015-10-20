@@ -19,9 +19,8 @@ from luigi.configuration import get_config
 
 try:
     from elasticsearch import Elasticsearch
-    from elasticsearch.client import IndicesClient
-    from elasticsearch.exceptions import NotFoundError
     from elasticsearch import helpers
+    from elasticsearch.connection import Urllib3HttpConnection, RequestsHttpConnection
 except ImportError:
     pass
 
@@ -566,13 +565,16 @@ class WeeklyStudentCourseEngagementIndexTask(
 
     elasticsearch_host = luigi.Parameter(
         is_list=True,
-        config_path={'section': 'elasticsearch', 'name': 'host'}
+        config_path={'section': 'student-engagement', 'name': 'elasticsearch_host'}
     )
     elasticsearch_index = luigi.Parameter(
-        config_path={'section': 'student-engagement', 'name': 'index'}
+        config_path={'section': 'student-engagement', 'name': 'elasticsearch_index'}
     )
     elasticsearch_number_of_shards = luigi.Parameter(
-        config_path={'section': 'student-engagement', 'name': 'number_of_shards'}
+        config_path={'section': 'student-engagement', 'name': 'elasticsearch_number_of_shards'}
+    )
+    elasticsearch_connection_type = luigi.Parameter(
+        config_path={'section': 'student-engagement', 'name': 'elasticsearch_connection_type'}
     )
     scale_factor = luigi.IntParameter(default=1)
     throttle = luigi.FloatParameter(default=0.25)
@@ -599,52 +601,60 @@ class WeeklyStudentCourseEngagementIndexTask(
 
         es = self.create_elasticsearch_client()
         if not es.indices.exists(index=self.elasticsearch_index):
-            es.indices.create(index=self.elasticsearch_index)
-            es.indices.put_settings(index=self.elasticsearch_index, body={
-                'number_of_shards': self.elasticsearch_number_of_shards,
-                'refresh_interval': -1
-            })
-
-        doc_type = 'roster_entry'
-        es.indices.put_mapping(index=self.elasticsearch_index, doc_type=doc_type, body={
-            doc_type: {
-                'properties': {
-                    'course_id': {'type': 'string', 'index': 'not_analyzed'},
-                    'username': {'type': 'string', 'index': 'not_analyzed'},
-                    'email': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
-                    'name': {'type': 'string'},
-                    'enrollment_mode': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
-                    'cohort': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
-                    'problems_attempted': {'type': 'integer', 'doc_values': True},
-                    'discussion_activity': {'type': 'integer', 'doc_values': True},
-                    'problems_completed': {'type': 'integer', 'doc_values': True},
-                    'attempts_per_problem_completed': {'type': 'float', 'doc_values': True},
-                    'videos_watched': {'type': 'integer', 'doc_values': True},
-                    'segments': {'type': 'string'},
-                    'name_suggest': {
-                        'type': 'completion',
-                        'index_analyzer': 'simple',
-                        'search_analyzer': 'simple',
-                        'payloads': True,
-                        "context": {
-                            "course_id": {
-                                "type": "category",
-                                "default": "unknown",
-                                "path": "course_id"
+            es.indices.create(index=self.elasticsearch_index, body={
+                'settings': {
+                    'number_of_shards': self.elasticsearch_number_of_shards,
+                    'refresh_interval': -1
+                },
+                'mappings': {
+                    'roster_entry': {
+                        'properties': {
+                            'course_id': {'type': 'string', 'index': 'not_analyzed'},
+                            'username': {'type': 'string', 'index': 'not_analyzed'},
+                            'email': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
+                            'name': {'type': 'string'},
+                            'enrollment_mode': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
+                            'cohort': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
+                            'problems_attempted': {'type': 'integer', 'doc_values': True},
+                            'discussion_activity': {'type': 'integer', 'doc_values': True},
+                            'problems_completed': {'type': 'integer', 'doc_values': True},
+                            'attempts_per_problem_completed': {'type': 'float', 'doc_values': True},
+                            'videos_watched': {'type': 'integer', 'doc_values': True},
+                            'segments': {'type': 'string'},
+                            'name_suggest': {
+                                'type': 'completion',
+                                'index_analyzer': 'simple',
+                                'search_analyzer': 'simple',
+                                'payloads': True,
+                                "context": {
+                                    "course_id": {
+                                        "type": "category",
+                                        "default": "unknown",
+                                        "path": "course_id"
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
-        })
+            })
 
     def create_elasticsearch_client(self):
+        if self.elasticsearch_connection_type == 'urllib3':
+            connection_class = Urllib3HttpConnection
+        elif self.elasticsearch_connection_type == 'boto':
+            connection_class = BotoHttpConnection
+        elif self.elasticsearch_connection_type == 'requests':
+            connection_class = RequestsHttpConnection
+        else:
+            raise ValueError('Unrecognized connection type: {}'.format(self.elasticsearch_connection_type))
+
         return Elasticsearch(
             hosts=self.elasticsearch_host,
             timeout=60,
             retry_on_status=(408, 504),
             retry_on_timeout=True,
-            connection_class=BotoHttpConnection
+            connection_class=connection_class
         )
 
     def mapper(self, line):
