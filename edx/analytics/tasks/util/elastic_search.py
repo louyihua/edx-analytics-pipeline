@@ -24,8 +24,11 @@ class BotoHttpConnection(Connection):
         if params:
             url = '%s?%s' % (url, urlencode(params or {}))
 
+        if not isinstance(body, basestring):
+            body = json.dumps(body)
+
         start = time.time()
-        response = self.connection.make_request(method, url, data=json.dumps(body))
+        response = self.connection.make_request(method, url, data=body)
         duration = time.time() - start
         raw_data = response.read()
 
