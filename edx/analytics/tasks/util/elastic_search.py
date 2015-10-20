@@ -36,7 +36,7 @@ class BotoHttpConnection(Connection):
 
         self.log_request_success(method, url, url, body, response.status, raw_data, duration)
 
-        return response.status, response.getheaders(), raw_data
+        return response.status, dict(response.getheaders()), raw_data
 
 
 class ESConnection(AWSAuthConnection):
