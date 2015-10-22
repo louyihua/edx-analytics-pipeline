@@ -425,7 +425,7 @@ class SparseWeeklyStudentCourseEngagementPartitionTask(EventLogSelectionDownstre
         yield self.hive_table_task
 
 
-class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, OverwriteOutputMixin, OptionalVerticaMixin, MapReduceJobTask):
+class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, OverwriteOutputMixin, WarehouseMixin, OptionalVerticaMixin, MapReduceJobTask):
 
     date = luigi.DateParameter()
     interval = None
