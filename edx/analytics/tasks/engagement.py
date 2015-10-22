@@ -358,6 +358,147 @@ class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskM
         return [task.output() for task in self.requires()]
 
 
+EngagementRecord = namedtuple(
+    'EngagementRecord',
+    [
+        'course_id',
+        'username',
+        'date',
+        'entity_type',
+        'entity_id',
+        'event',
+        'count'
+    ]
+)
+
+
+class SparseWeeklyStudentCourseEngagementTableTask(BareHiveTableTask):
+
+    @property
+    def partition_by(self):
+        return 'dt'
+
+    @property
+    def table(self):
+        return 'sparse_course_engagement_weekly'
+
+    @property
+    def columns(self):
+        return [
+            ('course_id', 'STRING'),
+            ('username', 'STRING'),
+            ('date', 'STRING'),
+            ('problem_attempts', 'INT'),
+            ('problems_attempted', 'INT'),
+            ('problems_completed', 'INT'),
+            ('videos_played', 'INT'),
+            ('discussion_activity', 'INT'),
+            ('days_active', 'INT')
+        ]
+
+
+class SparseWeeklyStudentCourseEngagementPartitionTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, OverwriteOutputMixin, OptionalVerticaMixin, HivePartitionTask):
+
+    # Required Parameters
+    date = luigi.DateParameter()
+
+    # Override superclass to disable these parameters
+    interval = None
+
+    @property
+    def partition_value(self):
+        return self.date.isoformat()
+
+    @property
+    def hive_table_task(self):
+        return SparseWeeklyStudentCourseEngagementTableTask(
+            warehouse_path=self.warehouse_path
+        )
+
+    def requires(self):
+        yield SparseWeeklyStudentCourseEngagementTask(
+            date=self.date,
+            n_reduce_tasks=self.n_reduce_tasks,
+            warehouse_path=self.warehouse_path,
+            overwrite=self.overwrite,
+        )
+        yield self.hive_table_task
+
+
+class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, OverwriteOutputMixin, OptionalVerticaMixin, MapReduceJobTask):
+
+    date = luigi.DateParameter()
+    interval = None
+
+    def __init__(self, *args, **kwargs):
+        super(SparseWeeklyStudentCourseEngagementTask, self).__init__(*args, **kwargs)
+
+        start_date = self.date - datetime.timedelta(weeks=1)
+        self.interval = date_interval.Custom(start_date, self.date)
+
+    def mapper(self, line):
+        record = tsv_to_named_tuple(EngagementRecord, line)
+        yield ((record.course_id, record.username), line.strip())
+
+    def reducer(self, key, lines):
+        """Calculate counts for events corresponding to user and course in a given time period."""
+        course_id, username = key
+
+        output_record = SparseWeeklyCourseEngagementRecord()
+        for line in lines:
+            record = tsv_to_named_tuple(EngagementRecord, line)
+
+            output_record.days_active.add(record.date)
+
+            if record.entity_type == 'problem':
+                if record.event == 'attempted':
+                    output_record.problem_attempts += record.count
+                    output_record.problems_attempted.add(record.entity_id)
+                elif record.event == 'completed':
+                    output_record.problems_completed.add(record.entity_id)
+            elif record.entity_type == 'video':
+                if record.event == 'played':
+                    output_record.videos_played.add(record.entity_id)
+            elif record.entity_type == 'forum':
+                output_record.discussion_activity += record.count
+            else:
+                log.warn('Unrecognized entity type: %s', record.entity_type)
+
+            yield (
+                course_id.encode('utf-8'),
+                username.encode('utf-8'),
+                self.date,
+                output_record.problem_attempts,
+                len(output_record.problems_attempted),
+                len(output_record.problems_completed),
+                len(output_record.videos_played),
+                output_record.discussion_activity,
+                len(output_record.days_active)
+            )
+
+    def output(self):
+        return get_target_from_url(url_path_join(self.warehouse_path, 'sparse_course_engagement_weekly', 'dt=' + self.date.isoformat()) + '/')
+
+    def requires(self):
+        yield EngagementIntervalTask(
+            interval=self.interval,
+            n_reduce_tasks=self.n_reduce_tasks,
+            warehouse_path=self.warehouse_path,
+            overwrite=self.overwrite,
+        )
+
+
+class SparseWeeklyCourseEngagementRecord(object):
+
+    def __init__(self):
+        self.problem_attempts = 0
+        self.problems_attempted = set()
+        self.problems_completed = set()
+        self.videos_played = set()
+        self.discussion_activity = 0
+        self.days_active = set()
+
+
 class WeeklyStudentCourseEngagementTableTask(BareHiveTableTask):
 
     @property
@@ -383,6 +524,7 @@ class WeeklyStudentCourseEngagementTableTask(BareHiveTableTask):
             ('problems_completed', 'INT'),
             ('videos_played', 'INT'),
             ('discussion_activity', 'INT'),
+            ('segments', 'STRING')
         ]
 
 
@@ -419,7 +561,14 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
             COALESCE(eng.problems_attempted, 0),
             COALESCE(eng.problems_completed, 0),
             COALESCE(eng.videos_played, 0),
-            COALESCE(eng.discussion_activity, 0)
+            COALESCE(eng.discussion_activity, 0),
+            CONCAT_WS(
+                ",",
+                IF(ce.at_end = 0, "unenrolled", NULL),
+                IF(eng.days_active = 0, "inactive", NULL),
+                IF(old_eng.days_active > 0 AND eng.days_active = 0, "disengaging", NULL),
+                IF((CAST(eng.problems_attempted AS DOUBLE) / CAST(eng.problems_completed AS DOUBLE)) > 1.25, "struggling", NULL)
+            )
         FROM course_enrollment ce
         INNER JOIN calendar cal ON (ce.date = cal.date)
         INNER JOIN auth_user au
@@ -436,54 +585,10 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
                 ON (cugu.courseusergroup_id = cug.id)
         ) cohort
             ON (au.id = cohort.user_id AND ce.course_id = cohort.course_id)
-        LEFT OUTER JOIN (
-            SELECT
-                course_id,
-                username,
-                SUM(
-                    CASE
-                        WHEN entity_type = "problem" AND event = "attempted"
-                        THEN count
-                        ELSE 0
-                    END
-                ) as problem_attempts,
-                SUM(
-                    CASE
-                        WHEN entity_type = "problem" AND event = "attempted"
-                        THEN 1
-                        ELSE 0
-                    END
-                ) as problems_attempted,
-                SUM(
-                    CASE
-                        WHEN entity_type = "problem" AND event = "completed"
-                        THEN 1
-                        ELSE 0
-                    END
-                ) as problems_completed,
-                SUM(
-                    CASE
-                        WHEN entity_type = "video" AND event = "played"
-                        THEN 1
-                        ELSE 0
-                    END
-                ) as videos_played,
-                SUM(
-                    CASE
-                        WHEN entity_type = "forum"
-                        THEN count
-                        ELSE 0
-                    END
-                ) as discussion_activity
-            FROM engagement
-            WHERE
-                date >= '{start}'
-                AND date < '{end}'
-            GROUP BY
-                course_id,
-                username
-        ) eng
-            ON (ce.course_id = eng.course_id AND au.username = eng.username)
+        LEFT OUTER JOIN sparse_course_engagement_weekly eng
+            ON (ce.course_id = eng.course_id AND au.username = eng.username AND eng.date = '{end}')
+        LEFT OUTER JOIN sparse_course_engagement_weekly old_eng
+            ON (ce.course_id = old_eng.course_id AND au.username = old_eng.username AND old_eng.date = DATE_SUB('{end}', 7))
         WHERE
             ce.date >= '{start}'
             AND ce.date < '{end}'
@@ -513,8 +618,8 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
         }
         yield (
             self.hive_table_task,
-            EngagementIntervalTask(
-                interval=self.interval,
+            SparseWeeklyStudentCourseEngagementPartitionTask(
+                date=self.date,
                 n_reduce_tasks=self.n_reduce_tasks,
                 warehouse_path=self.warehouse_path,
                 overwrite=self.overwrite,
