@@ -466,9 +466,10 @@ class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, 
 
             output_record.days_active.add(record.date)
 
+            count = int(record.count)
             if record.entity_type == 'problem':
                 if record.event == 'attempted':
-                    output_record.problem_attempts += record.count
+                    output_record.problem_attempts += count
                     output_record.problems_attempted.add(record.entity_id)
                 elif record.event == 'completed':
                     output_record.problems_completed.add(record.entity_id)
@@ -476,7 +477,7 @@ class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, 
                 if record.event == 'played':
                     output_record.videos_played.add(record.entity_id)
             elif record.entity_type == 'forum':
-                output_record.discussion_activity += record.count
+                output_record.discussion_activity += count
             else:
                 log.warn('Unrecognized entity type: %s', record.entity_type)
 
@@ -656,7 +657,7 @@ class WeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, MapRed
         )
 
 
-WeeklyCourseEngagementRecord = namedtuple(
+WeeklyCourseEngagementRecordBase = namedtuple(
     'WeeklyCourseEngagementRecord',
     [
         'course_id',
@@ -670,9 +671,26 @@ WeeklyCourseEngagementRecord = namedtuple(
         'problems_attempted',
         'problems_completed',
         'videos_played',
-        'discussion_activity'
+        'discussion_activity',
+        'segments'
     ]
 )
+
+
+class WeeklyCourseEngagementRecord(WeeklyCourseEngagementRecordBase):
+
+    def __new__(cls, *args, **kwargs):
+        result = super(WeeklyCourseEngagementRecord, cls).__new__(cls, *args, **kwargs)
+        result = result._replace(  # pylint: disable=no-member,protected-access
+            problems_attempted=int(result.problems_attempted),  # pylint: disable=no-member
+            problem_attempts=int(result.problem_attempts),  # pylint: disable=no-member
+            problems_completed=int(result.problems_completed),  # pylint: disable=no-member
+            videos_played=int(result.videos_played),  # pylint: disable=no-member
+            discussion_activity=int(result.discussion_activity),  # pylint: disable=no-member
+            segments=result.segments.split(',')  # pylint: disable=no-member
+        )
+
+        return result
 
 
 class WeeklyStudentCourseEngagementIndexTask(
@@ -791,11 +809,6 @@ class WeeklyStudentCourseEngagementIndexTask(
             for line in lines:
                 record = tsv_to_named_tuple(WeeklyCourseEngagementRecord, line)
 
-                problems_attempted = int(record.problems_attempted)
-                problem_attempts = int(record.problem_attempts)
-                discussion_activity = int(record.discussion_activity)
-                problems_completed = int(record.problems_completed)
-
                 document = {
                     '_type': 'roster_entry',
                     '_id': '|'.join([record.course_id, record.username]),
@@ -805,11 +818,11 @@ class WeeklyStudentCourseEngagementIndexTask(
                         'email': record.email,
                         'name': record.name,
                         'enrollment_mode': record.enrollment_mode,
-                        'problems_attempted': problems_attempted,
-                        'discussion_activity': discussion_activity,
-                        'problems_completed': problems_completed,
-                        'videos_watched': int(record.videos_played),
-                        'segments': [],
+                        'problems_attempted': record.problems_attempted,
+                        'discussion_activity': record.discussion_activity,
+                        'problems_completed': record.problems_completed,
+                        'videos_watched': record.videos_played,
+                        'segments': record.segments,
                         'name_suggest': {
                             'input': [record.name, record.username, record.email],
                             'output': record.name,
@@ -825,7 +838,9 @@ class WeeklyStudentCourseEngagementIndexTask(
                     document['_source']['cohort'] = record.cohort
 
                 if problems_completed > 0:
-                    document['_source']['attempts_per_problem_completed'] = float(problem_attempts) / float(problems_completed)
+                    document['_source']['attempts_per_problem_completed'] = (
+                        float(record.problem_attempts) / float(record.problems_completed)
+                    )
 
                 original_id = document['_id']
                 for i in range(self.scale_factor):
