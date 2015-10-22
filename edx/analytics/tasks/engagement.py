@@ -364,7 +364,8 @@ class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskM
                         credentials=self.vertica_credentials,
                     )
                 )
-            return requirements
+
+        return requirements
 
     def output(self):
         return [task.output() for task in self.requires().values()]
