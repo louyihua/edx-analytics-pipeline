@@ -837,7 +837,7 @@ class WeeklyStudentCourseEngagementIndexTask(
                 if record.cohort is not None:
                     document['_source']['cohort'] = record.cohort
 
-                if problems_completed > 0:
+                if record.problems_completed > 0:
                     document['_source']['attempts_per_problem_completed'] = (
                         float(record.problem_attempts) / float(record.problems_completed)
                     )
