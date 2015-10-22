@@ -331,28 +331,40 @@ class OptionalVerticaMixin(object):
 class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, WarehouseMixin, OverwriteOutputMixin, OptionalVerticaMixin, luigi.WrapperTask):
 
     def requires(self):
+        requirements = {
+            'hive': [],
+            'mysql': [],
+            'vertica': []
+        }
         for date in self.interval:
-            yield EngagementPartitionTask(
-                date=date,
-                n_reduce_tasks=self.n_reduce_tasks,
-                warehouse_path=self.warehouse_path,
-                overwrite=self.overwrite,
-            )
-            yield EngagementMysqlTask(
-                date=date,
-                n_reduce_tasks=self.n_reduce_tasks,
-                warehouse_path=self.warehouse_path,
-                overwrite=self.overwrite,
-            )
-            if self.vertica_enabled:
-                yield EngagementVerticaTask(
+            requirements['hive'].append(
+                EngagementPartitionTask(
                     date=date,
                     n_reduce_tasks=self.n_reduce_tasks,
                     warehouse_path=self.warehouse_path,
                     overwrite=self.overwrite,
-                    schema=self.vertica_schema,
-                    credentials=self.vertica_credentials,
                 )
+            )
+            requirements['mysql'].append(
+                EngagementMysqlTask(
+                    date=date,
+                    n_reduce_tasks=self.n_reduce_tasks,
+                    warehouse_path=self.warehouse_path,
+                    overwrite=self.overwrite,
+                )
+            )
+            if self.vertica_enabled:
+                requirements['vertica'].append(
+                    EngagementVerticaTask(
+                        date=date,
+                        n_reduce_tasks=self.n_reduce_tasks,
+                        warehouse_path=self.warehouse_path,
+                        overwrite=self.overwrite,
+                        schema=self.vertica_schema,
+                        credentials=self.vertica_credentials,
+                    )
+                )
+            return requirements
 
     def output(self):
         return [task.output() for task in self.requires()]
@@ -436,6 +448,9 @@ class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, 
         start_date = self.date - datetime.timedelta(weeks=1)
         self.interval = date_interval.Custom(start_date, self.date)
 
+    def requires_hadoop(self):
+        return self.requires()['hive']
+
     def mapper(self, line):
         record = tsv_to_named_tuple(EngagementRecord, line)
         yield ((record.course_id, record.username), line.strip())
@@ -480,7 +495,7 @@ class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, 
         return get_target_from_url(url_path_join(self.warehouse_path, 'sparse_course_engagement_weekly', 'dt=' + self.date.isoformat()) + '/')
 
     def requires(self):
-        yield EngagementIntervalTask(
+        return EngagementIntervalTask(
             interval=self.interval,
             n_reduce_tasks=self.n_reduce_tasks,
             warehouse_path=self.warehouse_path,
