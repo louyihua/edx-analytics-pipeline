@@ -367,7 +367,7 @@ class EngagementIntervalTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskM
             return requirements
 
     def output(self):
-        return [task.output() for task in self.requires()]
+        return [task.output() for task in self.requires().values()]
 
 
 EngagementRecord = namedtuple(
@@ -449,7 +449,7 @@ class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, 
         self.interval = date_interval.Custom(start_date, self.date)
 
     def requires_hadoop(self):
-        return self.requires()['hive']
+        return self.requires().requires()['hive']
 
     def mapper(self, line):
         record = tsv_to_named_tuple(EngagementRecord, line)
