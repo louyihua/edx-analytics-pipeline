@@ -481,17 +481,17 @@ class SparseWeeklyStudentCourseEngagementTask(EventLogSelectionDownstreamMixin, 
             else:
                 log.warn('Unrecognized entity type: %s', record.entity_type)
 
-            yield (
-                course_id.encode('utf-8'),
-                username.encode('utf-8'),
-                self.date,
-                output_record.problem_attempts,
-                len(output_record.problems_attempted),
-                len(output_record.problems_completed),
-                len(output_record.videos_played),
-                output_record.discussion_activity,
-                len(output_record.days_active)
-            )
+        yield (
+            course_id.encode('utf-8'),
+            username.encode('utf-8'),
+            self.date,
+            output_record.problem_attempts,
+            len(output_record.problems_attempted),
+            len(output_record.problems_completed),
+            len(output_record.videos_played),
+            output_record.discussion_activity,
+            len(output_record.days_active)
+        )
 
     def output(self):
         return get_target_from_url(url_path_join(self.warehouse_path, 'sparse_course_engagement_weekly', 'dt=' + self.date.isoformat()) + '/')
