@@ -714,7 +714,7 @@ class WeeklyStudentCourseEngagementIndexTask(
     throttle = luigi.FloatParameter(default=0.25)
     batch_size = luigi.IntParameter(default=500)
     indexing_tasks = luigi.IntParameter(default=None)
-    obfuscate = luigi.Parameter(default=False)
+    obfuscate = luigi.BooleanParameter(default=False)
 
     def __init__(self, *args, **kwargs):
         super(WeeklyStudentCourseEngagementIndexTask, self).__init__(*args, **kwargs)
