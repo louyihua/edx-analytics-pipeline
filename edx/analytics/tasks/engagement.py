@@ -811,7 +811,7 @@ class WeeklyStudentCourseEngagementIndexTask(
                     n = random.randrange(5)
                     if n == 0:
                         gender = random.choice(('male', 'female'))
-                        name = '{0} {1} {0}'.format(
+                        name = '{0} {1} {2}'.format(
                             names.get_first_name(gender, cached=True), names.get_first_name(gender, cached=True), names.get_last_name(cached=True)
                         )
                     else:
