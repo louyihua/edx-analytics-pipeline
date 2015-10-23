@@ -8,30 +8,18 @@ import logging
 from itertools import groupby
 from operator import itemgetter
 import re
-import sys
-import time
-import random
 
 import luigi
-try:
-    from elasticsearch import Elasticsearch
-    from elasticsearch.client import IndicesClient
-    from elasticsearch.exceptions import NotFoundError
-    from elasticsearch import helpers
-except ImportError:
-    pass
 
 from edx.analytics.tasks.calendar_task import CalendarTableTask
 from edx.analytics.tasks.database_imports import (
-    ImportAuthUserTask, ImportAuthUserProfileTask, ImportCourseUserGroupTask, ImportCourseUserGroupUsersTask)
+    ImportAuthUserTask, ImportCourseUserGroupTask, ImportCourseUserGroupUsersTask)
 from edx.analytics.tasks.enrollments import CourseEnrollmentTableTask
 from edx.analytics.tasks.mapreduce import MapReduceJobTask, MapReduceJobTaskMixin, MultiOutputMapReduceJobTask
 from edx.analytics.tasks.pathutil import EventLogSelectionMixin, EventLogSelectionDownstreamMixin
-from edx.analytics.tasks.url import get_target_from_url, url_path_join, IgnoredTarget
+from edx.analytics.tasks.url import get_target_from_url, url_path_join
 from edx.analytics.tasks.util import eventlog
 from edx.analytics.tasks.util.overwrite import OverwriteOutputMixin
-from edx.analytics.tasks.vertica_load import VerticaCopyTask
-from edx.analytics.tasks.mysql_load import MysqlInsertTask
 
 from edx.analytics.tasks.util.hive import WarehouseMixin, HiveTableTask, HivePartition, HiveTableFromQueryTask
 
@@ -100,7 +88,7 @@ class StudentEngagementTask(EventLogSelectionMixin, MapReduceJobTask):
             timestamp = eventlog.get_event_time_string(event)
             if timestamp is None:
                 return
-            info['path'] = event_type.rstrip("\\")
+            info['path'] = event_type
             info['timestamp'] = timestamp
             event_type = SUBSECTION_VIEWED_MARKER
 
@@ -274,7 +262,7 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
 
     @property
     def table(self):
-        return 'student_engagement_summary_{}'.format(self.interval_type)
+        return 'student_engagement_joined_{}'.format(self.interval_type)
 
     @property
     def partition(self):
@@ -287,8 +275,6 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
             ('course_id', 'STRING'),
             ('username', 'STRING'),
             ('email', 'STRING'),
-            ('name', 'STRING'),
-            ('enrollment_mode', 'STRING'),
             ('cohort', 'STRING'),
             ('days_active', 'INT'),
             ('problems_attempted', 'INT'),
@@ -300,13 +286,7 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
             ('forum_comments', 'INT'),
             ('textbook_pages_viewed', 'INT'),
             ('last_subsection_viewed', 'STRING'),
-            ('segments', 'STRING'),
         ]
-
-    def hiveconfs(self):
-        jcs = super(JoinedStudentEngagementTableTask, self).hiveconfs()
-        jcs['hive.auto.convert.join'] = 'false'
-        return jcs
 
     @property
     def insert_query(self):
@@ -336,9 +316,7 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
             ce.course_id,
             au.username,
             au.email,
-            regexp_replace(regexp_replace(aup.name, '\\\\t|\\\\n|\\\\r', ' '), '\\\\\\\\', ''),
-            ce.mode,
-            cohort.name,
+            COALESCE(cohort.name, ''),
             COALESCE(ser.days_active, 0),
             COALESCE(ser.problems_attempted, 0),
             COALESCE(ser.problem_attempts, 0),
@@ -348,38 +326,13 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
             COALESCE(ser.forum_responses, 0),
             COALESCE(ser.forum_comments, 0),
             COALESCE(ser.textbook_pages_viewed, 0),
-            ser.last_subsection_viewed,
-            concat_ws(",",
-                CASE WHEN (COALESCE(ser.days_active, 0) = 0) THEN "inactive" END,
-                CASE WHEN (
-                    (ser.problem_attempts > 0 AND ser.problems_correct = 0)
-                    OR (
-                        ser.problem_attempts > 0
-                        AND ser.problems_correct > 0
-                        AND ((ser.problem_attempts / ser.problems_correct) > perc.attempts_per_correct_80)
-                    )
-                ) THEN "struggling" END,
-                CASE WHEN ce.at_end = 1 THEN "enrolled" ELSE "unenrolled" END
-            )
+            COALESCE(ser.last_subsection_viewed, '')
         FROM course_enrollment ce
         {calendar_join}
         INNER JOIN auth_user au
             ON (ce.user_id = au.id)
-        INNER JOIN auth_userprofile aup
-            ON (au.id = aup.user_id)
         LEFT OUTER JOIN student_engagement_raw_{interval_type} ser
             ON (au.username = ser.username AND ce.date = ser.end_date and ce.course_id = ser.course_id)
-        LEFT OUTER JOIN (
-                SELECT
-                    end_date,
-                    course_id,
-                    percentile_approx(
-                        CASE WHEN problems_correct > 0 THEN (problem_attempts / problems_correct) ELSE CAST(problem_attempts AS DOUBLE) END,
-                        0.8
-                    ) AS attempts_per_correct_80
-                FROM student_engagement_raw_{interval_type}
-                GROUP BY end_date, course_id
-            ) perc ON (ce.course_id = perc.course_id AND ce.date = perc.end_date)
         LEFT OUTER JOIN (
             SELECT
                 cugu.user_id,
@@ -390,7 +343,7 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
                 ON (cugu.courseusergroup_id = cug.id)
         ) cohort
             ON (au.id = cohort.user_id AND ce.course_id = cohort.course_id)
-        WHERE {date_where}
+        WHERE ce.at_end = 1 AND {date_where}
         """.format(
             calendar_join=calendar_join,
             interval_type=self.interval_type,
@@ -427,7 +380,6 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
             ImportCourseUserGroupTask(**kwargs_for_db_import),
             ImportCourseUserGroupUsersTask(**kwargs_for_db_import),
             CourseEnrollmentTableTask(**kwargs_for_enrollment),
-            ImportAuthUserProfileTask(**kwargs_for_db_import),
         )
         # Only the weekly requires use of the calendar.
         if self.interval_type == "weekly":
@@ -436,178 +388,6 @@ class JoinedStudentEngagementTableTask(StudentEngagementTableDownstreamMixin, Hi
                     warehouse_path=self.warehouse_path,
                 )
             )
-
-
-class StudentEngagementIndexTask(
-        StudentEngagementTableDownstreamMixin,
-        OverwriteOutputMixin,
-        MapReduceJobTask):
-
-    elasticsearch_host = luigi.Parameter(
-        is_list=True,
-        config_path={'section': 'elasticsearch', 'name': 'host'}
-    )
-    elasticsearch_index = luigi.Parameter(
-        config_path={'section': 'student-engagement', 'name': 'index'}
-    )
-    scale_factor = luigi.IntParameter(default=1)
-    throttle = luigi.FloatParameter(default=0)
-    batch_size = luigi.IntParameter(default=500)
-
-    def requires(self):
-        return JoinedStudentEngagementTableTask(
-            mapreduce_engine=self.mapreduce_engine,
-            n_reduce_tasks=self.n_reduce_tasks,
-            source=self.source,
-            interval=self.interval,
-            pattern=self.pattern,
-            overwrite=self.overwrite,
-            interval_type=self.interval_type,
-        )
-
-    def init_local(self):
-        es = self.create_elasticsearch_client()
-        if not es.indices.exists(index=self.elasticsearch_index):
-            es.indices.create(index=self.elasticsearch_index)
-            es.indices.put_settings(index=self.elasticsearch_index, body={
-                'refresh_interval': -1
-            })
-
-        doc_type = 'roster_entry'
-        es.indices.put_mapping(index=self.elasticsearch_index, doc_type=doc_type, body={
-            doc_type: {
-                'properties': {
-                    'course_id': {'type': 'string', 'index': 'not_analyzed'},
-                    'username': {'type': 'string', 'index': 'not_analyzed'},
-                    'email': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
-                    'name': {'type': 'string'},
-                    'enrollment_mode': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
-                    'cohort': {'type': 'string', 'index': 'not_analyzed', 'doc_values': True},
-                    'problems_attempted': {'type': 'integer', 'doc_values': True},
-                    'discussion_activity': {'type': 'integer', 'doc_values': True},
-                    'problems_completed': {'type': 'integer', 'doc_values': True},
-                    'attempts_per_problem_completed': {'type': 'float', 'doc_values': True},
-                    'videos_watched': {'type': 'integer', 'doc_values': True},
-                    'segments': {'type': 'string'},
-                    'name_suggest': {
-                        'type': 'completion',
-                        'index_analyzer': 'simple',
-                        'search_analyzer': 'simple',
-                        'payloads': True,
-                        "context": {
-                            "course_id": {
-                                "type": "category",
-                                "default": "unknown",
-                                "path": "course_id"
-                            }
-                        }
-                    }
-                }
-            }
-        })
-
-    def create_elasticsearch_client(self):
-        return Elasticsearch(
-            hosts=self.elasticsearch_host,
-            timeout=60,
-            retry_on_status=(408, 504),
-            retry_on_timeout=True
-        )
-
-    def mapper(self, line):
-        yield (line.split('\t')[1].encode('utf8'), line)
-
-    def reducer(self, _key, records):
-        es = self.create_elasticsearch_client()
-
-        self.batch_index = 0
-
-        def record_generator():
-            for record in records:
-                split_record = record.split('\t')
-                course_id = split_record[1]
-                username = split_record[2]
-                email = split_record[3]
-                name = split_record[4]
-                cohort = split_record[6]
-                problems_attempted = int(split_record[8])
-                problem_attempts = int(split_record[9])
-                discussion_activity = sum(int(x) for x in split_record[12:15])
-                problems_completed = int(split_record[10])
-
-                document = {
-                    '_type': 'roster_entry',
-                    '_id': '|'.join([course_id, username]),
-                    '_source': {
-                        'course_id': course_id,
-                        'username': username,
-                        'email': email,
-                        'name': name,
-                        'enrollment_mode': split_record[5],
-                        'problems_attempted': problems_attempted,
-                        'discussion_activity': discussion_activity,
-                        'problems_completed': problems_completed,
-                        'videos_watched': int(split_record[11]),
-                        'segments': split_record[-1].split(','),
-                        'name_suggest': {
-                            'input': [name, username, email],
-                            'output': name,
-                            'payload': {'username': username},
-                            'context': {
-                                'course_id': course_id
-                            }
-                        }
-                    }
-                }
-
-                if cohort != "\\N":
-                    document['_source']['cohort'] = cohort
-
-                if problems_completed > 0:
-                    document['_source']['attempts_per_problem_completed'] = float(problem_attempts) / float(problems_completed)
-
-                original_id = document['_id']
-                for i in range(self.scale_factor):
-                    if i > 0:
-                        document['_id'] = original_id + '|' + str(i)
-                    yield document
-
-                    self.batch_index += 1
-                    if self.batch_size is not None and self.batch_index >= self.batch_size:
-                        self.incr_counter('Elasticsearch', 'Records Indexed', self.batch_index)
-                        self.batch_index = 0
-                        if self.throttle:
-                            time.sleep(self.throttle)
-
-        num_indexed, errors = helpers.bulk(
-            es,
-            record_generator(),
-            index=self.elasticsearch_index,
-            chunk_size=self.batch_size,
-            raise_on_error=False
-        )
-        self.incr_counter('Elasticsearch', 'Records Indexed', self.batch_index)
-        num_errors = len(errors)
-        self.incr_counter('Elasticsearch', 'Indexing Errors', num_errors)
-        sys.stderr.write('Number of errors: {0}\n'.format(num_errors))
-        for error in errors:
-            sys.stderr.write(str(error))
-            sys.stderr.write('\n')
-
-        yield ('', '')
-
-    def extra_modules(self):
-        import urllib3
-        import elasticsearch
-        return [urllib3, elasticsearch]
-
-    def jobconfs(self):
-        jcs = super(StudentEngagementIndexTask, self).jobconfs()
-        jcs.append('mapred.reduce.tasks.speculative.execution=false')
-        return jcs
-
-    def output(self):
-        return IgnoredTarget()
 
 
 class StudentEngagementCsvFileTask(
@@ -722,186 +502,3 @@ class StudentEngagementCsvFileTask(
             # TSV's are assumed to be written (by Hive) in UTF-8 encoding,
             # so we should not encode the values of row_data before outputting.
             writer.writerow(row_dict)
-
-
-class StudentModuleEngagementTask(EventLogSelectionMixin, MapReduceJobTask):
-
-    output_root = luigi.Parameter()
-
-    def mapper(self, line):
-        value = self.get_event_and_date_string(line)
-        if value is None:
-            return
-        event, date_string = value
-
-        username = event.get('username', '').strip()
-        if not username:
-            return
-
-        event_type = event.get('event_type')
-        if event_type is None:
-            return
-
-        course_id = eventlog.get_course_id(event)
-        if not course_id:
-            return
-
-        event_data = eventlog.get_event_data(event)
-        if event_data is None:
-            return
-
-        event_source = event.get('event_source')
-
-        entity_id = None
-        entity_type = None
-        if event_type == 'problem_check':
-            if event_source != 'server':
-                return
-
-            entity_type = 'problem'
-            entity_id = event_data.get('problem_id')
-        elif event_type == 'play_video':
-            entity_type = 'video'
-            entity_id = event_data.get('id')
-        elif event_type.startswith('edx.forum.'):
-            entity_type = 'forum'
-            entity_id = event_data.get('commentable_id')
-
-        if not entity_id or not entity_type:
-            return
-
-        key = tuple([k.encode('utf8') for k in (date_string, course_id, username, entity_type, entity_id)])
-
-        yield (key, 1)
-
-    def reducer(self, key, values):
-        yield ('\t'.join(key),)
-
-    def output(self):
-        return get_target_from_url(self.output_root)
-
-class InsertStudentModuleEngagementIntoMysqlTask(EventLogSelectionDownstreamMixin, MapReduceJobTaskMixin, MysqlInsertTask):
-
-    output_root = luigi.Parameter()
-
-    @property
-    def table(self):
-        return "student_module_engagement"
-
-    @property
-    def auto_primary_key(self):
-        return None
-
-    @property
-    def columns(self):
-        return [
-            ('date', 'DATE NOT NULL'),
-            ('course_id', 'VARCHAR(255) NOT NULL'),
-            ('username', 'VARCHAR(30) NOT NULL'),
-            ('module_category', 'VARCHAR(10) NOT NULL'),
-            ('encoded_module_id', 'VARCHAR(255) NOT NULL'),
-            ('PRIMARY KEY', '(course_id, username, date, module_category, encoded_module_id)')
-        ]
-
-    @property
-    def insert_source_task(self):
-        return StudentModuleEngagementTask(
-            n_reduce_tasks=self.n_reduce_tasks,
-            interval=self.interval,
-            output_root=self.output_root
-        )
-
-
-class StudentEngagementToVerticaTask(
-        StudentEngagementTableDownstreamMixin,
-        VerticaCopyTask):
-
-    overwrite = True
-
-    @property
-    def partition(self):
-        return HivePartition('dt', self.interval.date_b.isoformat())  # pylint: disable=no-member
-
-    @property
-    def insert_source_task(self):
-        return (
-            JoinedStudentEngagementTableTask(
-                mapreduce_engine=self.mapreduce_engine,
-                n_reduce_tasks=self.n_reduce_tasks,
-                source=self.source,
-                interval=self.interval,
-                pattern=self.pattern,
-                interval_type=self.interval_type,
-            )
-        )
-
-    @property
-    def table(self):
-        return 'd_student_engagement_{}'.format(self.interval_type)
-
-    @property
-    def default_columns(self):
-        """List of tuples defining name and definition of automatically-filled columns."""
-        return None
-
-    @property
-    def columns(self):
-        return [
-            ('end_date', 'DATE'),
-            ('course_id', 'VARCHAR(255)'),
-            ('username', 'VARCHAR(30)'),
-            ('email', 'VARCHAR(255)'),
-            ('name', 'VARCHAR(255)'),
-            ('enrollment_mode', 'VARCHAR(255)'),
-            ('cohort', 'VARCHAR(255)'),
-            ('days_active', 'INT'),
-            ('problems_attempted', 'INT'),
-            ('problem_attempts', 'INT'),
-            ('problems_correct', 'INT'),
-            ('videos_played', 'INT'),
-            ('forum_posts', 'INT'),
-            ('forum_responses', 'INT'),
-            ('forum_comments', 'INT'),
-            ('textbook_pages_viewed', 'INT'),
-            ('last_subsection_viewed', 'VARCHAR(255)'),
-            ('segments', 'VARCHAR(255)'),
-        ]
-
-
-class StudentModuleEngagementToVerticaTask(
-        StudentEngagementTableDownstreamMixin,
-        VerticaCopyTask):
-
-    output_root = luigi.Parameter()
-
-    @property
-    def insert_source_task(self):
-        return (
-            StudentModuleEngagementTask(
-                mapreduce_engine=self.mapreduce_engine,
-                n_reduce_tasks=self.n_reduce_tasks,
-                source=self.source,
-                interval=self.interval,
-                pattern=self.pattern,
-                output_root=self.output_root,
-            )
-        )
-
-    @property
-    def table(self):
-        return 'f_student_module_engagement'
-
-    @property
-    def default_columns(self):
-        """List of tuples defining name and definition of automatically-filled columns."""
-        return None
-
-    @property
-    def columns(self):
-        return [
-            ('date', 'DATE'),
-            ('course_id', 'VARCHAR(255)'),
-            ('username', 'VARCHAR(30)'),
-            ('module_category', 'VARCHAR(10)'),
-            ('encoded_module_id', 'VARCHAR(255)'),
-        ]
