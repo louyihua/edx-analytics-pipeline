@@ -1,12 +1,7 @@
-import csv
 from collections import namedtuple
 import datetime
-import hashlib
-import json
 import logging
-from itertools import groupby
-from operator import itemgetter
-import re
+import random
 import sys
 import time
 
@@ -719,6 +714,7 @@ class WeeklyStudentCourseEngagementIndexTask(
     throttle = luigi.FloatParameter(default=0.25)
     batch_size = luigi.IntParameter(default=500)
     indexing_tasks = luigi.IntParameter(default=None)
+    obfuscate = luigi.Parameter(default=False)
 
     def __init__(self, *args, **kwargs):
         super(WeeklyStudentCourseEngagementIndexTask, self).__init__(*args, **kwargs)
@@ -809,14 +805,29 @@ class WeeklyStudentCourseEngagementIndexTask(
             for line in lines:
                 record = tsv_to_named_tuple(WeeklyCourseEngagementRecord, line)
 
+                if self.obfuscate:
+                    import names
+                    email = '{0}@example.com'.format(record.username)
+                    n = random.randrange(5)
+                    if n == 0:
+                        gender = random.choice(('male', 'female'))
+                        name = '{0} {1} {0}'.format(
+                            names.get_first_name(gender), names.get_first_name(gender), names.get_last_name()
+                        )
+                    else:
+                        name = names.get_full_name()
+                else:
+                    email = record.email
+                    name = record.name
+
                 document = {
                     '_type': 'roster_entry',
                     '_id': '|'.join([record.course_id, record.username]),
                     '_source': {
                         'course_id': record.course_id,
                         'username': record.username,
-                        'email': record.email,
-                        'name': record.name,
+                        'email': email,
+                        'name': name,
                         'enrollment_mode': record.enrollment_mode,
                         'problems_attempted': record.problems_attempted,
                         'discussion_activity': record.discussion_activity,
@@ -824,8 +835,8 @@ class WeeklyStudentCourseEngagementIndexTask(
                         'videos_watched': record.videos_played,
                         'segments': record.segments,
                         'name_suggest': {
-                            'input': [record.name, record.username, record.email],
-                            'output': record.name,
+                            'input': [name, record.username, email],
+                            'output': name,
                             'payload': {'username': record.username},
                             'context': {
                                 'course_id': record.course_id
@@ -873,9 +884,18 @@ class WeeklyStudentCourseEngagementIndexTask(
         yield ('', '')
 
     def extra_modules(self):
-        import urllib3
         import elasticsearch
-        return [urllib3, elasticsearch]
+        packages = [elasticsearch]
+
+        if self.elasticsearch_connection_type == 'urllib3':
+            import urllib3
+            packages.append(urllib3)
+
+        if self.obfuscate:
+            import names
+            packages.append(names)
+
+        return packages
 
     def jobconfs(self):
         jcs = super(WeeklyStudentCourseEngagementIndexTask, self).jobconfs()
