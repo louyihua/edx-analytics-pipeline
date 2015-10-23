@@ -21,14 +21,11 @@ class BotoHttpConnection(Connection):
         self.connection = ESConnection(host=host, port=443)
 
     def perform_request(self, method, url, params=None, body=None, timeout=None, ignore=()):
-        if params:
-            url = '%s?%s' % (url, urlencode(params or {}))
-
         if not isinstance(body, basestring):
             body = json.dumps(body)
 
         start = time.time()
-        response = self.connection.make_request(method, url, data=body)
+        response = self.connection.make_request(method, url, params=params, data=body)
         duration = time.time() - start
         raw_data = response.read()
 
