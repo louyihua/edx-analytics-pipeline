@@ -885,11 +885,9 @@ class WeeklyStudentCourseEngagementIndexTask(
 
     def extra_modules(self):
         import elasticsearch
-        packages = [elasticsearch]
+        import urllib3
 
-        if self.elasticsearch_connection_type == 'urllib3':
-            import urllib3
-            packages.append(urllib3)
+        packages = [elasticsearch, urllib3]
 
         if self.obfuscate:
             import names
