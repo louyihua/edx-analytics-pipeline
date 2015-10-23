@@ -812,10 +812,10 @@ class WeeklyStudentCourseEngagementIndexTask(
                     if n == 0:
                         gender = random.choice(('male', 'female'))
                         name = '{0} {1} {0}'.format(
-                            names.get_first_name(gender), names.get_first_name(gender), names.get_last_name()
+                            names.get_first_name(gender, cached=True), names.get_first_name(gender, cached=True), names.get_last_name(cached=True)
                         )
                     else:
-                        name = names.get_full_name()
+                        name = names.get_full_name(cached=True)
                 else:
                     email = record.email
                     name = record.name

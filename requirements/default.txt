@@ -37,4 +37,4 @@ pip==1.5.6
 git+https://github.com/edx/luigi.git@v1.0.17-fork.edx.1#egg=luigi 		# Apache License 2.0
 git+https://github.com/edx/opaque-keys.git@33f2b099e92957046a866a9b6d48a71c484bb475#egg=opaque-keys
 git+https://github.com/edx/pyinstrument.git@a35ff76df4c3d5ff9a2876d859303e33d895e78f#egg=pyinstrument     # BSD
-names
+git+https://github.com/juiceinc/names.git@b367ab976ebce7d1298d6ca4453163dce6be07dd#egg=names
